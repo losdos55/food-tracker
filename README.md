@@ -32,20 +32,6 @@ nothing and needs no infrastructure. A Cloudflare Worker proxy is only worth it 
 public. Committing the key to deployed JS is the one option to avoid (GitHub's secret scanning may also
 auto-report/revoke it).
 
-## Deploy to GitHub Pages
-
-The repo `losdos55/food-tracker` already exists.
-
-1. Merge the working branch into `main` (open a PR from `claude/nutrition-tracking-pwa-c87svd` and merge it).
-2. On GitHub: **Settings → Pages**. Under *Build and deployment*, set **Source: Deploy from a branch**,
-   **Branch: `main`**, folder **`/ (root)`**, then **Save**.
-3. Wait ~1 minute. Your app is live at `https://losdos55.github.io/food-tracker/` (HTTPS is automatic).
-   All paths in the app are relative, so the `/food-tracker/` subpath works.
-4. Pages on a free account needs the repo to be **public** (or a paid plan for private).
-
-Updating later: push to `main`; the service worker is network-first, so you get new code on the next
-online launch (close and reopen the app once).
-
 ## Install on iPhone / iPad
 
 Do this **in Safari** (not Chrome or an in-app browser):
