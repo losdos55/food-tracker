@@ -1,0 +1,4 @@
+# Local-only API key for desktop development (never committed)
+config.local.js
+node_modules/
+.DS_Store
