@@ -1,0 +1,20 @@
+{
+  "totalHits": 2,
+  "foods": [
+    {
+      "fdcId": 2001, "description": "CREAMY PEANUT SPREAD", "dataType": "Branded", "brandOwner": "OTHER CO",
+      "gtinUpc": "012345678912",
+      "foodNutrients": [{ "nutrientId": 1008, "value": 600 }, { "nutrientId": 1003, "value": 20 }]
+    },
+    {
+      "fdcId": 2002, "description": "CREAMY PEANUT BUTTER", "dataType": "Branded", "brandOwner": "ACME FOODS INC.",
+      "gtinUpc": "0012345678905", "servingSize": 32, "servingSizeUnit": "g", "householdServingFullText": "2 Tbsp",
+      "foodNutrients": [
+        { "nutrientId": 1008, "nutrientNumber": "208", "unitName": "KCAL", "value": 594 },
+        { "nutrientId": 1003, "nutrientNumber": "203", "unitName": "G", "value": 21.9 },
+        { "nutrientId": 1005, "nutrientNumber": "205", "unitName": "G", "value": 21.9 },
+        { "nutrientId": 1004, "nutrientNumber": "204", "unitName": "G", "value": 50 }
+      ]
+    }
+  ]
+}

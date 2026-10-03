@@ -1,6 +1,8 @@
 import * as db from './db.js';
 import * as fdc from './fdc.js';
 import * as C from './calc.js';
+import { lookupBarcode, barcodeCandidates } from './barcode.js';
+import { openScanner } from './scanner.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -137,7 +139,9 @@ function openFoodSheet(food, { mode, initial = { qty: 100, unit: 'g' }, date = s
   const wrap = openSheet(`
     <div class="sheet-head"><h2>${esc(food.name)}</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
     <p class="sub">${esc([food.brand, food.dataType].filter(Boolean).join(' · '))}</p>
+    ${food.gtin ? `<p class="sub">Source: ${esc(food.source)} · barcode ${esc(food.gtin)}</p>` : ''}
     <div class="macros per100"><span class="label">Per 100 g</span>${macroLine(food.per100)}</div>
+    <div id="serving"></div>
     <div class="field-row">
       <label class="field grow">Amount<input id="qty" inputmode="decimal" autocomplete="off" value="${esc(initial.qty)}"></label>
       <label class="field grow">Unit<select id="unit"></select></label>
@@ -164,7 +168,13 @@ function openFoodSheet(food, { mode, initial = { qty: 100, unit: 'g' }, date = s
     const opt = C.unitOptions(currentFood).find((o) => o.label === unitEl.value) || { grams: 1, label: 'g' };
     return { qty, opt, grams: qty * opt.grams };
   };
+  const paintServing = () => {
+    const sv = (currentFood.portions || []).find((p) => /^serving/i.test(p.label));
+    $('#serving', wrap).innerHTML = sv
+      ? `<div class="macros per100"><span class="label">Per ${esc(sv.label)} = ${C.fmtG(sv.grams)} g</span>${macroLine(C.scale(currentFood.per100, sv.grams))}</div>` : '';
+  };
   const refresh = () => {
+    paintServing();
     const { qty, opt, grams } = read();
     const ok = qty > 0;
     $('#hint', wrap).textContent = ok
@@ -211,7 +221,7 @@ async function saveLog(entry) {
 function logFood(food, { grams, date, slot }) {
   const pg = C.perGramOfFood(food.per100);
   return saveLog({
-    kind: 'food', date, slot, name: food.name, fdcId: food.fdcId, grams, perGram: pg,
+    kind: 'food', date, slot, name: food.name, fdcId: food.fdcId, gtin: food.gtin, source: food.source, grams, perGram: pg,
     ...C.fromPerGram(pg, grams),
   });
 }
@@ -408,10 +418,83 @@ async function openEditLog(id) {
 // ---------------------------------------------------------------- SEARCH view
 
 function renderSearch(v) {
-  mountSearch(v, state.search, (f) => openFoodSheet(f, {
+  v.innerHTML = `<button class="btn block scan-btn" data-action="scan">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>
+      Scan barcode</button>
+    <div id="search-pane"></div>`;
+  mountSearch($('#search-pane', v), state.search, (f) => openFoodSheet(f, {
     mode: 'browse',
     onAction: foodLogHandler(),
   }));
+}
+
+// ---------------------------------------------------------------- barcode scanning
+
+function startScan() {
+  openScanner({ onCode: (code, format) => lookupAndShow(code, format), onManual: openManualBarcode });
+}
+
+function openManualBarcode() {
+  const wrap = openSheet(`
+    <div class="sheet-head"><h2>Type barcode</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+    <p class="sub">Enter all the digits under the barcode (8, 12 or 13 digits, UPC or EAN).</p>
+    <form id="bc-form">
+      <label class="field">Barcode<input id="bc" inputmode="numeric" autocomplete="off" pattern="[0-9 ]*" placeholder="e.g. 012345678905"></label>
+      <p class="hint" id="bc-hint"></p>
+      <div class="actions"><button class="btn primary" type="submit">Look up</button></div>
+    </form>`);
+  const input = $('#bc', wrap);
+  input.focus();
+  $('#bc-form', wrap).addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = input.value.replace(/\D/g, '');
+    if (!barcodeCandidates(code).length) {
+      $('#bc-hint', wrap).textContent = [8, 12, 13].includes(code.length)
+        ? "Those digits don't form a valid barcode (check digit mismatch). Double-check them."
+        : 'A barcode has 8, 12 or 13 digits.';
+      return;
+    }
+    closeSheet(wrap);
+    lookupAndShow(code);
+  });
+}
+
+async function lookupAndShow(code, format) {
+  const wrap = openSheet(`
+    <div class="sheet-head"><h2>Barcode ${esc(code)}</h2><button class="icon-btn" data-close aria-label="Close">✕</button></div>
+    <div id="bc-body"><div class="empty">Looking up product…</div></div>`);
+  const body = $('#bc-body', wrap);
+  const offerFallbacks = (html, retry) => {
+    body.innerHTML = `${html}<div class="actions">
+      ${retry ? '<button class="btn primary" data-bc="retry">Try again</button>' : ''}
+      <button class="btn${retry ? '' : ' primary'}" data-bc="search">Search by name</button>
+      <button class="btn" data-bc="scan">Scan again</button>
+      <button class="btn" data-bc="type">Type barcode</button></div>`;
+    body.onclick = (e) => {
+      const b = e.target.closest('[data-bc]');
+      if (!b) return;
+      closeSheet(wrap);
+      ({
+        retry: () => lookupAndShow(code, format),
+        scan: startScan,
+        type: openManualBarcode,
+        search: async () => { await go('search'); $('#search-pane input[name=q]')?.focus(); },
+      })[b.dataset.bc]();
+    };
+  };
+  try {
+    const { food, note } = await lookupBarcode(code, format);
+    if (!wrap.isConnected) return;
+    if (food) {
+      closeSheet(wrap);
+      openFoodSheet(food, { mode: 'browse', onAction: foodLogHandler() });
+    } else {
+      offerFallbacks(`<p>${note ? esc(note) : `No product with barcode <b>${esc(code)}</b> was found in USDA FoodData Central or Open Food Facts.`}</p>
+        <p class="sub">Try searching for it by name instead.</p>`);
+    }
+  } catch (err) {
+    if (wrap.isConnected) offerFallbacks(`<div class="error">${esc(err.message)}</div>`, true);
+  }
 }
 
 // ---------------------------------------------------------------- RECIPES view
@@ -626,6 +709,7 @@ const actions = {
     } catch (e) { out.textContent = e.message; }
   },
   export: exportBackup,
+  scan: startScan,
 };
 
 document.addEventListener('click', (e) => {
@@ -638,7 +722,7 @@ const TITLES = { log: 'Daily Log', search: 'Food Search', recipes: 'Recipes', se
 function go(tab) {
   state.tab = tab;
   window.scrollTo(0, 0);
-  render();
+  return render();
 }
 
 async function render() {

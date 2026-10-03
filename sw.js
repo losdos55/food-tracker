@@ -1,9 +1,10 @@
 // Network-first for our own files (always fresh when online), cache fallback offline.
 // Cross-origin requests (the USDA API) are never touched or cached.
-const CACHE = 'macros-shell-v1';
+const CACHE = 'macros-shell-v2';
 const SHELL = [
   './', 'index.html', 'manifest.json', 'css/style.css',
-  'js/app.js', 'js/db.js', 'js/fdc.js', 'js/calc.js',
+  'js/app.js', 'js/db.js', 'js/fdc.js', 'js/calc.js', 'js/barcode.js', 'js/scanner.js',
+  'vendor/zxing-browser.esm.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png',
 ];
 

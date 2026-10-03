@@ -35,7 +35,7 @@ export function extractPer100(list = []) {
   };
 }
 
-const titleCase = (s) => (s && s === s.toUpperCase()
+export const titleCase = (s) => (s && s === s.toUpperCase()
   ? s.toLowerCase().replace(/(^|[\s(,/-])([a-z])/g, (_, a, b) => a + b.toUpperCase()) : s);
 
 function portionsFrom(raw) {
@@ -66,37 +66,49 @@ export function normalizeFood(raw) {
     dataType: raw.dataType || '',
     per100: extractPer100(raw.foodNutrients),
     portions: portionsFrom(raw),
+    gtin: raw.gtinUpc || undefined,
+    source: 'USDA FoodData Central',
   };
+}
+
+/** fetch with a 15 s timeout and friendly network errors. Shared by the USDA and Open Food Facts lookups. */
+export async function fetchWithTimeout(url, label = 'FoodData Central') {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    return await fetch(url, { signal: ctl.signal });
+  } catch (e) {
+    throw new Error(navigator.onLine === false
+      ? "You're offline. Food lookups need a connection."
+      : `Could not reach ${label}. Check your connection and try again.`);
+  } finally { clearTimeout(timer); }
 }
 
 async function request(path, params) {
   const url = new URL(BASE + path);
   for (const [k, v] of Object.entries({ ...params, api_key: keyProvider() })) url.searchParams.set(k, v);
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 15000);
-  let res;
-  try {
-    res = await fetch(url, { signal: ctl.signal });
-  } catch (e) {
-    throw new Error(navigator.onLine === false
-      ? "You're offline. Food search needs a connection."
-      : 'Could not reach FoodData Central. Check your connection and try again.');
-  } finally { clearTimeout(timer); }
+  const res = await fetchWithTimeout(url);
   if (res.status === 429) throw new Error('USDA rate limit reached. Add your own API key in Settings (DEMO_KEY is very limited) or wait a bit.');
   if (res.status === 403 || res.status === 401) throw new Error('USDA rejected the API key. Check it in Settings.');
   if (!res.ok) throw new Error(`USDA API error (${res.status}).`);
   return res.json();
 }
 
-export async function searchFoods(query, { type = 'generic', pageSize = 25 } = {}) {
+/** Raw (un-normalized) search results, e.g. for gtinUpc matching. */
+export async function searchRaw(query, { type = 'generic', pageSize = 25 } = {}) {
   const data = await request('/foods/search', { query, dataType: TYPE_FILTERS[type] || TYPE_FILTERS.generic, pageSize });
-  return (data.foods || []).map(normalizeFood);
+  return data.foods || [];
+}
+
+export async function searchFoods(query, opts) {
+  return (await searchRaw(query, opts)).map(normalizeFood);
 }
 
 const detailCache = new Map();
 
 /** Fetch full detail (adds household portions). Falls back to the given summary on failure. */
 export async function withDetail(food) {
+  if (!food.fdcId) return food; // e.g. Open Food Facts products: no USDA detail record
   if (detailCache.has(food.fdcId)) return detailCache.get(food.fdcId);
   try {
     const raw = await request(`/food/${food.fdcId}`, {});
